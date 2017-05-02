@@ -126,6 +126,8 @@
             version: "{{ ckan_branch }}"
             dest: "{{ ckan_checkout_root }}/ckan"
 
+      # We really want to use the platform-provided psycopg instead of the
+      # we'd get through pip.
       - name: remove platform-provided dependencies
         lineinfile:
             path: "{{ ckan_checkout_root }}/ckan/requirements.txt"
