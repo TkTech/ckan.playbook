@@ -1,0 +1,143 @@
+---
+- hosts: pg
+  become: yes
+  pre_tasks:
+      - name: overriding version details
+        set_fact:
+          ansible_distribution_major_version: "6"
+          when: ansible_distribution == "Amazon" and ansible_distribution_major_version == "NA"
+
+      - name: install dependencies
+        yum: pkg={{item}} state=installed enablerepo=epel
+        with_items:
+            - python27-psycopg2
+        when: "ansible_os_family == 'RedHat'"
+  roles:
+      - ANXS.postgresql
+
+- hosts: solr
+  become: yes
+  roles:
+      - role: geerlingguy.java
+        when: "ansible_os_family == 'RedHat'"
+        java_packages:
+            - java-1.8.0-openjdk
+      - geerlingguy.solr
+  tasks:
+      - name: install dependencies
+        yum: pkg={{item}} state=installed
+        with_items:
+            - git-core
+        when: "ansible_os_family == 'RedHat'"
+
+      - name: creating temporary working directory
+        tempfile:
+            state: directory
+            suffix: ckan
+        register: ckan_tmpdir
+
+      - name: getting ckan
+        git:
+            repo: "{{ ckan_repo }}"
+            version: "{{ ckan_branch }}"
+            dest: "{{ ckan_tmpdir.path }}"
+            depth: 1
+
+      - name: stopping solr
+        service:
+            name: solr
+            state: stopped
+
+      - name: updating solr schema
+        copy:
+            src: "{{ ckan_tmpdir.path }}/ckan/config/solr/schema.xml"
+            dest: "/var/solr/data/ckan/conf/schema.xml"
+            owner: "{{ solr_user }}"
+            remote_src: true
+
+      - name: removing managed schema
+        file:
+            path: "/var/solr/data/ckan/conf/managed-schema"
+            state: absent
+
+      - name: starting solr
+        service:
+            name: solr
+            state: started
+
+
+- hosts: www
+  become: yes
+  roles:
+      - geerlingguy.nginx
+  tasks:
+      - name: enable epel repository
+        yum:
+            pkg: epel-release
+            state: installed
+        when: "ansible_os_family == 'RedHat'"
+
+      - name: install core dependencies pt.1
+        yum: pkg={{item}} state=installed
+        with_items:
+            - git-core
+            - postgresql-devel
+            - python2
+            - python-pip
+            - python-virtualenv
+            - zlib-devel
+            - libjpeg-devel
+            - "@Development tools"
+        when: "ansible_os_family == 'RedHat'"
+
+      # RedHat/CentOS sepcific
+      - name: install core dependencies pt.2
+        yum: pkg={{item}} state=installed
+        with_items:
+            - redis
+        when: "ansible_os_family == 'RedHat' and ansible_distribution != 'Amazon'"
+
+      # Amazon linux specific
+      - name: install core dependencies pt.2
+        yum: pkg={{item}} state=installed enablerepo=epel
+        with_items:
+            - redis
+        when: "ansible_os_family == 'RedHat' and ansible_distribution == 'Amazon'"
+
+      - name: ensuring home exists
+        file:
+            path: "{{ ckan_checkout_root }}"
+            state: directory
+            owner: "nginx"
+            group: "nginx"
+            recurse: yes
+
+      - name: ensuring socket dir exists
+        file:
+            path: "{{ ckan_socket_path }}"
+            state: directory
+            owner: "nginx"
+            group: "nginx"
+            recurse: yes
+
+      - name: getting ckan
+        git:
+            repo: "{{ ckan_repo }}"
+            version: "{{ ckan_branch }}"
+            dest: "{{ ckan_checkout_root }}/ckan"
+
+      - name: remove platform-provided dependencies
+        lineinfile:
+            path: "{{ ckan_checkout_root }}/ckan/requirements.txt"
+            state: absent
+            regexp: "psycopg2"
+
+      - name: install ckan dependencies
+        pip:
+            requirements: requirements.txt
+            chdir: "{{ ckan_checkout_root }}/ckan"
+
+      - name: install ckan dev dependencies
+        pip:
+            requirements: dev-requirements.txt
+            chdir: "{{ ckan_checkout_root }}/ckan"
