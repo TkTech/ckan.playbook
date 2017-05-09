@@ -3,3 +3,10 @@ ckan_checkout_root: "/home/nginx"
 ckan_branch: "master"
 ckan_repo: "https://github.com/ckan/ckan.git"
 ckan_socket_path: "/var/run/ckan"
+ckan_schema: "schema.xml"
+ckan_dependency_files:
+    - "requirements.txt"
+    - "dev-requirements.txt"
+
+db_host: localhost:5432
+solr_url: localhost:8983

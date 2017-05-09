@@ -5,8 +5,7 @@ nginx_vhosts:
       server_name: "{{ inventory_hostname }}"
       extra_parameters: |
         location / {
-            fastcgi_pass unix:/var/run/fcgi_ckan;
-            include fastcgi_params;
-            fastcgi_pass_header Authorization;
-            fastcgi_intercept_errors off;
+            include     uwsgi_params;
+            uwsgi_param SCRIPT_NAME '';
+            uwsgi_pass  unix:///run/uwsgi/ckan.sock;
         }

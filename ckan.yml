@@ -1,4 +1,9 @@
 ---
+# Null task to hack around bug #14655
+- hosts: www
+- hosts: pg
+- hosts: solr
+
 - hosts: pg
   become: yes
   pre_tasks:
@@ -42,6 +47,7 @@
             version: "{{ ckan_branch }}"
             dest: "{{ ckan_tmpdir.path }}"
             depth: 1
+            force: true
 
       - name: stopping solr
         service:
@@ -50,7 +56,7 @@
 
       - name: updating solr schema
         copy:
-            src: "{{ ckan_tmpdir.path }}/ckan/config/solr/schema.xml"
+            src: "{{ ckan_tmpdir.path }}/ckan/config/solr/{{ ckan_schema }}"
             dest: "/var/solr/data/ckan/conf/schema.xml"
             owner: "{{ solr_user }}"
             remote_src: true
@@ -68,8 +74,12 @@
 
 - hosts: www
   become: yes
+  environment:
+      PATH: /usr/local/bin:{{ ansible_env.PATH }}
+
   roles:
       - geerlingguy.nginx
+
   tasks:
       - name: enable epel repository
         yum:
@@ -125,21 +135,49 @@
             repo: "{{ ckan_repo }}"
             version: "{{ ckan_branch }}"
             dest: "{{ ckan_checkout_root }}/ckan"
+            force: true
+            depth: 1
 
       # We really want to use the platform-provided psycopg instead of the
       # we'd get through pip.
       - name: remove platform-provided dependencies
         lineinfile:
-            path: "{{ ckan_checkout_root }}/ckan/requirements.txt"
+            path: "{{ ckan_checkout_root }}/ckan/{{ item }}"
             state: absent
             regexp: "psycopg2"
+        with_items: "{{ ckan_dependency_files }}"
 
       - name: install ckan dependencies
         pip:
-            requirements: requirements.txt
+            requirements: "{{ item }}"
+            chdir: "{{ ckan_checkout_root }}/ckan"
+        with_items: "{{ ckan_dependency_files }}"
+
+      - name: install ckan
+        pip:
+            name: "."
+            editable: true
             chdir: "{{ ckan_checkout_root }}/ckan"
 
-      - name: install ckan dev dependencies
-        pip:
-            requirements: dev-requirements.txt
+      - name: checking CKAN config file exists
+        stat:
+            path: "{{ ckan_checkout_root }}/ckan/production.ini"
+        register: ckan_config
+
+      - name: creating missing CKAN config file
+        command: "paster make-config ckan {{ ckan_checkout_root }}/ckan/production.ini"
+        args:
             chdir: "{{ ckan_checkout_root }}/ckan"
+        when: ckan_config.stat.exists == False
+
+      - name: updating CKAN config file - db
+        lineinfile:
+            path: '{{ ckan_checkout_root }}/ckan/production.ini'
+            regexp: '^sqlalchemy\.url'
+            line:  'sqlalchemy.url = postgresql://ckan:{{ vault_pg_ckan_pass }}@{{ db_host }}/ckan'
+
+      - name: updating CKAN config file - solr
+        lineinfile:
+            path: '{{ ckan_checkout_root }}/ckan/production.ini'
+            regexp: '^#solr_url'
+            line:  'solr_url = http://{{ solr_url }}/solr/ckan'
