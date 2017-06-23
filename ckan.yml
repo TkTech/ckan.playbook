@@ -35,6 +35,13 @@
             - git-core
         when: "ansible_os_family == 'RedHat'"
 
+      # latest versions of CentOS (RHEL?) are shipped with python-toolsets 0.9.8
+      - name: upgrade to latest version of toolsets
+        pip:
+            name: setuptools
+            extra_args: --upgrade
+        when: "ansible_os_family == 'RedHat' and ansible_distribution != 'Amazon'"
+
       - name: creating temporary working directory
         tempfile:
             state: directory
